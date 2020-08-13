@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="d8c02c83-e916-4697-b68a-9e12ffc5db3a" basePath="/database" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="17caf84e-2049-4876-a4fb-154ab08cf8a4" >
+		<db:generic-connection url="jdbc:postgresql://localhost:5432/dp_mulesoft" driverClassName="org.postgresql.Driver" user="postgres" password="password" />
+	</db:config>
+	<ee:object-store-caching-strategy name="Caching_Strategy" doc:name="Caching Strategy" doc:id="2ebf086e-6c9c-4a9f-bf16-16a2d0e3cbe5" keyGenerationExpression="#[vars.id]"/>
+	<flow name="database:insert" doc:id="7b63bfb9-2a91-495c-a6d7-bc535226e158" >
+		<http:listener doc:name="Listener" doc:id="59d55694-0c39-4fe0-ac13-9be66f3214df" config-ref="HTTP_Listener_config" path="/insert"/>
+		<logger level="INFO" doc:name="Logger" doc:id="7b087e05-7970-4717-8727-5fc5a6dbdbb8" message="*********************Input*************************#[payload]"/>
+		<ee:transform doc:name="Transform Message" doc:id="0441551a-7ef0-4bfa-b983-eaf4820e9b9a" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+if( (typeOf(payload) as String) == "Array") payload
+else [payload]
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="27b94af7-7602-424e-bf64-a6d362e449ef" collection="#[payload]">
+			<logger level="INFO" doc:name="Logger" doc:id="66ebf124-7d4a-478a-a191-564d0e116b07" message="#[payload]"/>
+			<db:insert doc:name="Insert" doc:id="940db33d-5bb8-457f-8d2c-9ee61947969c" config-ref="Database_Config">
+				<db:sql ><![CDATA[INSERT INTO employee ( id, fname, lname ) values ( :id , :fname, :lname )]]></db:sql>
+				<db:input-parameters ><![CDATA[#[{
+	id : payload.id,
+	fname : payload.name,
+	lname : payload.surname
+}]]]></db:input-parameters>
+			</db:insert>
+		</foreach>
+		<logger level="INFO" doc:name="Logger" doc:id="b18589e2-a15b-47a2-93cc-25ef45fffe94" message='#[%dw 2.0
+output application/json
+---
+{
+	"payload": payload
+}]' />
+	</flow>
+	<flow name="database:all" doc:id="1718f407-a8b9-4fb5-a376-508d74324d11" >
+		<http:listener doc:name="Listener" doc:id="3eaf49a4-a3a8-4790-9281-440d6ad98f85" config-ref="HTTP_Listener_config" path="/all"/>
+		<db:select doc:name="Select" doc:id="e046c357-3ff2-4dd7-bd42-b5f7ac818c63" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT * FROM employee]]></db:sql>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="760dd4ec-86b7-45ba-8343-6c5976482afd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="database:select" doc:id="63c1d931-3f37-43eb-be1c-fca4fc5319e1" >
+		<http:listener doc:name="Listener" doc:id="5db37b23-3e97-4bfe-bc5b-0cca0f43a4d7" config-ref="HTTP_Listener_config" path="/select/{id}"/>
+		<set-variable value="#[attributes.uriParams.id]" doc:name="Set Variable" doc:id="f31934f9-5b7c-4e83-bc8f-a9adf3313ffc" variableName="id"/>
+		<logger level="INFO" doc:name="Logger" doc:id="0771c519-5165-4f6d-88d3-ce9546887a69" message="#[vars.id]"/>
+		<ee:cache doc:name="Cache" doc:id="6e10a6f5-aaa7-4b74-bbbf-1d3da1f0bf5f" cachingStrategy-ref="Caching_Strategy">
+			<db:select doc:name="Select" doc:id="e224646f-6546-4d1d-9eaa-0a8374d3b711" config-ref="Database_Config">
+				<db:sql ><![CDATA[SELECT * FROM employee WHERE id = :id]]></db:sql>
+				<db:input-parameters ><![CDATA[#[{
+	id: vars.id
+}]]]></db:input-parameters>
+			</db:select>
+			<logger level="INFO" doc:name="Logger" doc:id="66c1e501-0aee-4a18-9f27-18ba54807a29" message="#[%dw 2.0
+output application/json
+---
+payload]"/>
+		</ee:cache>
+		<ee:transform doc:name="Transform Message" doc:id="8b59d872-8482-44de-8910-685312cce270" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
